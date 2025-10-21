@@ -16,37 +16,30 @@ PORT = 65432
 # python Client.py
 
 
-def safeRec(connection, buffer_size=4096):
-    """Receive data safely — returns '' on any failure."""
-    try:
-        data = connection.recv(buffer_size)
-        if not data:
-            # Client closed connection gracefully
+def safeSend(sock, message):
+    if isinstance(message, str):
+        message = message.encode()
+    length = len(message)
+    length_bytes = length.to_bytes(4, 'big')
+    sock.sendall(length_bytes + message)
+
+
+def safeRec(sock):
+    length_bytes = b''
+    while len(length_bytes) < 4:
+        chunk = sock.recv(4 - len(length_bytes))
+        if not chunk:
             return ''
-        return data.decode(errors='ignore').strip()
-    except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
-        # Any socket issue: treat as client gone
-        return ''
-    except Exception:
-        # Catch-all safeguard
-        return ''
+        length_bytes += chunk
+    length = int.from_bytes(length_bytes, 'big')
 
-
-def safeSend(sock, data):
-    """
-    Safely send data to a socket.
-    Accepts str or bytes. Returns True if sent, False if failed.
-    Never throws.
-    """
-    try:
-        if isinstance(data, str):
-            data = data.encode()
-        sock.sendall(data)
-        return True
-    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError):
-        return False
-    except Exception:
-        return False
+    data = b''
+    while len(data) < length:
+        chunk = sock.recv(length - len(data))
+        if not chunk:
+            return ''
+        data += chunk
+    return data.decode(errors='ignore')
 
 
 def clientStart():
@@ -63,20 +56,30 @@ def clientStart():
             print("Server Is Full, Try Again Later")
             sys.exit()
 
+        askName = safeRec(c)
+        print(askName)
+        name = input()
+        while name is None:
+            name = input("You Must Enter Your Name:")
+        name.strip()
+        safeSend(c, name)
+
+        instruction = safeRec(c)
+        print(instruction)
+
+        #tAway = ""
+        #    safeSend(c, tAway)
         while True:
-            message = safeRec(c)
-            if "Please Enter Your Name:" == message:
-                print(message)
-                name = input()
-                while name is None:
-                    name = input("You Must Enter Your Name:")
-                safeSend(c, name+'\n')
-            else:
-                print(message)
-                command = input()
-                while command is None:
-                    command = input("You Must Enter A Command")
-                safeSend(c, command+'\n')
+            message = safeRec(c)  # pelase enter ur comand
+            print(message)
+            command = input()
+            while command is None:
+                command = input("You Must Enter A Command")
+            command.strip()
+            safeSend(c, command)
+
+            response = safeRec(c)
+            print(response)
 
 
 if __name__ == "__main__":
