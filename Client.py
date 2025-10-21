@@ -14,6 +14,13 @@ PORT = 65432
 # usually this would be download but i want to keep organized
 
 # python Client.py
+commands = """\nThese Are The Available Commands:
+    Status: Prints Out Other Clients With Date and Time Accepted and Finished.
+    List: Prints Out File Names From The Repository If It Exists.
+    Stream: Streams The Content Of A File From The Repository(Case And File Type Specific).
+    Help: Repeats The Available Commands.
+    Exit: Exits The Session.
+    If Your Input Is Not Known The Server Will Echo It Back."""
 
 
 def safeSend(sock, message):
@@ -56,30 +63,39 @@ def clientStart():
             print("Server Is Full, Try Again Later")
             sys.exit()
 
-        askName = safeRec(c)
-        print(askName)
-        name = input()
-        while name is None:
-            name = input("You Must Enter Your Name:")
-        name.strip()
-        safeSend(c, name)
+        # single input for name
+        message = safeRec(c)
+        if "Please Enter Your Name:" in message:
+            print(message)
+            name = input()
+            while not name:
+                name = input("You Must Enter Your Name:")
+            safeSend(c, name)
 
-        instruction = safeRec(c)
-        print(instruction)
+        # receive welcome message (info + commands)
+        welcome = safeRec(c)
+        print(welcome)
 
-        #tAway = ""
-        #    safeSend(c, tAway)
         while True:
-            message = safeRec(c)  # pelase enter ur comand
+            safeSend(c, "")  # prompt server we are ready
+            message = safeRec(c)
             print(message)
             command = input()
-            while command is None:
+            while not command:
                 command = input("You Must Enter A Command")
-            command.strip()
             safeSend(c, command)
 
-            response = safeRec(c)
-            print(response)
+            # check for stream command
+            if command.lower().startswith("stream: "):
+                fileName = command[8:].strip()
+                # continuously receive until "Has Finished Streaming" arrives
+                while True:
+                    chunk = safeRec(c)
+                    if not chunk:
+                        break
+                    print(chunk, end='')
+                    if f"{fileName} Has Finished Streaming." in chunk:
+                        break
 
 
 if __name__ == "__main__":

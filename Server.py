@@ -120,10 +120,9 @@ class Server:
             print(line+'\n')
             # each client gets their own thread since the server must communicate with up to 3 at once
             clientActionThread = threading.Thread(
-                target=self.clientAction, args=(clientName,))
+                target=self.clientAction, args=(clientName,), daemon=True)
             # no join back since there is no need to wait for a client to finish
             clientActionThread.start()
-            clientActionThread.join()
 
     def clientAction(self, clientName):
         # have to tell client what they can do
@@ -132,6 +131,7 @@ class Server:
         clientRecord = clientInfo['clientRecord']
         connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         connection.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
         m1 = "Please Enter Your Name:"
         safeSend(connection, m1)
         data = safeRec(connection)  # updates client name
@@ -139,16 +139,18 @@ class Server:
         # updates so a human name is attached to a client number
         updateName = f"{clientName} Name: {data}"
         clientRecord.name = updateName
-        self.activeClients.pop(clientName, None)
-        self.activeClients[updateName] = {
-            'connection': connection,
-            'address': clientInfo['address'],
-            'clientRecord': clientRecord
-        }
-        for c in self.cache:
-            if c is clientRecord:
-                c.name = updateName
-                # name obtained
+        with clientLock:
+            self.activeClients.pop(clientName, None)
+            self.activeClients[updateName] = {
+                'connection': connection,
+                'address': clientInfo['address'],
+                'clientRecord': clientRecord
+            }
+            for c in self.cache:
+                if c is clientRecord:
+                    c.name = updateName
+                    # name obtained
+
         commands = """These Are The Available Commands:
 Status: Prints Out Other Clients With Date and Time Accepted and Finished.
 List: Prints Out File Names From The Repository If It Exists.
@@ -159,8 +161,8 @@ If Your Input Is Not Known The Server Will Echo It Back."""
 
         welcome = f"{clientRecord.toString().strip()}\n{commands}"
         safeSend(connection, welcome)
-        while True:  # as long as client is sending inputs this contines\
 
+        while True:  # as long as client is sending inputs this contines\
             safeSend(connection, "\nPlease Enter Your Command")
             data = safeRec(connection)  # get input from client
             clientInput = data.strip()
@@ -177,8 +179,12 @@ If Your Input Is Not Known The Server Will Echo It Back."""
                         safeSend(connection, m1)
                         # we can still get other commands so dont break while loop
                     else:
-                        for f in os.listdir(self.repo_dir):
-                            safeSend(connection, f)
+                        files = os.listdir(self.repo_dir)
+                        if(files):
+                            fileMessage = "\n".join(files)
+                        else:
+                            fileMessage = "repository empty"
+                        safeSend(connection, fileMessage)
 
                 elif clientInput.lower().startswith("stream: "):
                     if not self.repoExists:
@@ -196,20 +202,22 @@ If Your Input Is Not Known The Server Will Echo It Back."""
                             safeSend(connection, m1)
                         else:
 
-                            m1 = f"Streaming {fileName}"
+                            m1 = f"Streaming {fileName}:\n"
                             safeSend(connection, m1)
+                            # stream file in chunks
                             with open(fileLocation, 'rb') as f:
-                                contentStream = f.read(4096)
-                                while contentStream:  # shoulda named this fileStream but we arent perfect
-                                    safeSend(connection, contentStream)
+                                while True:
                                     contentStream = f.read(4096)
+                                    # shouda named this fileStream but at this point who cares
+                                    if not contentStream:
+                                        break
+                                    safeSend(connection, contentStream)
                             m1 = f"{fileName} Has Finished Streaming."
                             safeSend(connection, m1)
 
                 elif clientInput.lower() == 'exit':  # end connection
                     m1 = "Exit Requested"
                     safeSend(connection, m1)
-                    flag = False  # another failsafe
                     break
 
                 elif clientInput.lower() == 'help':
@@ -220,7 +228,7 @@ If Your Input Is Not Known The Server Will Echo It Back."""
             else:
                 m1 = "No Input Given, Please Try Again, Use The 'Help' Command For A List Of Commands."
                 safeSend(connection, m1)
-            #tAway = safeRec(connection)
+
         # should not get over here
         clientRecord.finished()
         with clientLock:
